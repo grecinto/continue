@@ -4,7 +4,7 @@ import * as https from "node:https";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fetchwithRequestOptions } from "./fetch.js";
 
 // Test server ports
@@ -16,6 +16,8 @@ const serversToCleanup: Array<http.Server | https.Server> = [];
 const tempDirsToCleanup: string[] = [];
 
 afterEach(() => {
+  delete (globalThis as typeof globalThis & { __continueAuthHandler?: unknown }).__continueAuthHandler;
+
   // Clean up all servers
   serversToCleanup.forEach((server) => server.close());
   serversToCleanup.length = 0;
@@ -244,6 +246,45 @@ describe("fetchwithRequestOptions E2E tests", () => {
         method: string;
       };
       expect(data.method).toBe("POST");
+    });
+
+    test("should invoke auth recovery handler on 401 responses and retry once", async () => {
+      let attempts = 0;
+      const server = http.createServer((req, res) => {
+        if (req.url === "/auth-retry") {
+          attempts += 1;
+          if (attempts === 1) {
+            res.writeHead(401, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "expired" }));
+            return;
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, attempts }));
+          return;
+        }
+
+        res.writeHead(404);
+        res.end("Not Found");
+      });
+
+      await new Promise<void>((resolve) => {
+        server.listen(3003, () => resolve());
+      });
+      serversToCleanup.push(server);
+
+      const authHandler = vi.fn(async () => true);
+      (globalThis as typeof globalThis & { __continueAuthHandler?: unknown }).__continueAuthHandler = authHandler;
+
+      const response = await fetchwithRequestOptions("http://localhost:3003/auth-retry");
+
+      expect(authHandler).toHaveBeenCalledTimes(1);
+      expect(authHandler).toHaveBeenCalledWith(
+        "http://localhost:3003/auth-retry",
+        401,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, attempts: 2 });
     });
 
     test("should handle custom headers", async () => {

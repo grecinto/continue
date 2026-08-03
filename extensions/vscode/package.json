@@ -1,8 +1,8 @@
 {
-  "name": "continue",
+  "name": "ai-studio",
   "icon": "media/icon.png",
-  "author": "Continue Dev, Inc",
-  "version": "1.3.40",
+  "author": "Northstar AI",
+  "version": "1.3.53",
   "repository": {
     "type": "git",
     "url": "https://github.com/continuedev/continue"
@@ -18,10 +18,10 @@
   "homepage": "https://continue.dev",
   "qna": "https://github.com/continuedev/continue/issues/new/choose",
   "license": "Apache-2.0",
-  "displayName": "Continue - open-source AI code agent",
+  "displayName": "AI Studio",
   "pricing": "Free",
-  "description": "The leading open-source AI code agent",
-  "publisher": "Continue",
+  "description": "AI Studio code agent for VS Code",
+  "publisher": "northstar",
   "engines": {
     "vscode": "^1.70.0",
     "node": ">=20.20.1"
@@ -84,7 +84,7 @@
       }
     ],
     "configuration": {
-      "title": "Continue",
+      "title": "AI Studio",
       "properties": {
         "continue.telemetryEnabled": {
           "type": "boolean",
@@ -597,14 +597,14 @@
       "activitybar": [
         {
           "id": "continue",
-          "title": "Continue",
-          "icon": "media/sidebar-icon.png"
+          "title": "AI Studio",
+          "icon": "media/sidebar-icon-studio-glyph.svg"
         }
       ],
       "panel": [
         {
           "id": "continueConsole",
-          "title": "Continue Console",
+          "title": "AI Studio Console",
           "icon": "$(window)"
         }
       ]
@@ -614,8 +614,8 @@
         {
           "type": "webview",
           "id": "continue.continueGUIView",
-          "name": "Continue",
-          "icon": "media/sidebar-icon.png",
+          "name": "AI Studio",
+          "icon": "media/sidebar-icon-studio-glyph.svg",
           "visibility": "visible"
         }
       ],
@@ -623,7 +623,7 @@
         {
           "type": "webview",
           "id": "continue.continueConsoleView",
-          "name": "Continue Console",
+          "name": "AI Studio Console",
           "icon": "$(window)",
           "visibility": "visible",
           "when": "config.continue.enableConsole"

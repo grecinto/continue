@@ -156,8 +156,25 @@ export function getMetaKeyName() {
 }
 
 export function getExtensionVersion(): string {
-  const extension = vscode.extensions.getExtension("continue.continue");
-  return extension?.packageJSON.version || "0.1.0";
+  const candidateIds = [
+    "northstar-ai.ai-studio",
+    "Continue.continue",
+    "continue.continue",
+  ];
+
+  for (const id of candidateIds) {
+    const extension = vscode.extensions.getExtension(id);
+    if (extension?.packageJSON?.version) {
+      return extension.packageJSON.version;
+    }
+  }
+
+  const byName = vscode.extensions.all.find((ext) => {
+    const name = String(ext.packageJSON?.name ?? "").toLowerCase();
+    return name === "ai-studio" || name === "continue";
+  });
+
+  return byName?.packageJSON?.version || "0.1.0";
 }
 
 export function getvsCodeUriScheme(): string {

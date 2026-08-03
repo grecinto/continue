@@ -83,6 +83,7 @@ export async function fetchwithRequestOptions(
   url_: URL | string,
   init?: RequestInit,
   requestOptions?: RequestOptions,
+  attempt = 0,
 ): Promise<Response> {
   const url = typeof url_ === "string" ? new URL(url_) : url_;
   if (url.host === "localhost") {
@@ -181,6 +182,30 @@ export async function fetchwithRequestOptions(
       const requestId = resp.headers.get("x-request-id");
       if (requestId) {
         console.log(`Request ID: ${requestId}, Status: ${resp.status}`);
+      }
+    }
+
+    const authHandler = (globalThis as typeof globalThis & {
+      __continueAuthHandler?: (url: string, status: number) => Promise<boolean | void> | boolean | void;
+    }).__continueAuthHandler;
+
+    if (
+      attempt === 0 &&
+      authHandler &&
+      [401, 403].includes(resp.status) &&
+      ["localhost", "127.0.0.1"].includes(url.hostname) &&
+      url.pathname.startsWith("/api/")
+    ) {
+      const method = (init?.method || "GET").toUpperCase();
+      if (["GET", "HEAD", "OPTIONS"].includes(method)) {
+        try {
+          const shouldRetry = (await authHandler(url.toString(), resp.status)) ?? false;
+          if (shouldRetry) {
+            return fetchwithRequestOptions(url_, init, requestOptions, attempt + 1);
+          }
+        } catch (retryError) {
+          console.log("Unable to handle auth recovery request:", retryError);
+        }
       }
     }
 

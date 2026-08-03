@@ -22,7 +22,31 @@ export function getNonce() {
 }
 
 export function getExtensionUri(): vscode.Uri {
-  return vscode.extensions.getExtension("Continue.continue")!.extensionUri;
+  const candidateIds = [
+    "northstar-ai.ai-studio",
+    "Continue.continue",
+    "continue.continue",
+  ];
+
+  for (const id of candidateIds) {
+    const extension = vscode.extensions.getExtension(id);
+    if (extension) {
+      return extension.extensionUri;
+    }
+  }
+
+  const byName = vscode.extensions.all.find((ext) => {
+    const name = String(ext.packageJSON?.name ?? "").toLowerCase();
+    return name === "ai-studio" || name === "continue";
+  });
+
+  if (byName) {
+    return byName.extensionUri;
+  }
+
+  throw new Error(
+    "Unable to resolve extension URI for AI Studio/Continue extension",
+  );
 }
 
 export function getViewColumnOfFile(
