@@ -50,6 +50,7 @@ import Nvidia from "./Nvidia";
 import Ollama from "./Ollama";
 import OpenAI from "./OpenAI";
 import OpenRouter from "./OpenRouter";
+import AIStudio from "./AIStudio";
 import ClawRouter from "./ClawRouter";
 import OVHcloud from "./OVHcloud";
 import { Relace } from "./Relace";
@@ -80,6 +81,7 @@ export const LLMClasses = [
   Moonshot,
   Ollama,
   Replicate,
+  AIStudio,
   TextGenWebUI,
   Together,
   Novita,

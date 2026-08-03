@@ -9,7 +9,13 @@ import { codebaseToolImpl } from "./implementations/codebaseTool";
 import { createNewFileImpl } from "./implementations/createNewFile";
 import { createRuleBlockImpl } from "./implementations/createRuleBlock";
 import { fetchUrlContentImpl } from "./implementations/fetchUrlContent";
+import { getDocumentSymbolsImpl } from "./implementations/getDocumentSymbols";
+import { getProblemsImpl } from "./implementations/getProblems";
+import { getReferencesImpl } from "./implementations/getReferences";
+import { getTerminalContentsImpl } from "./implementations/getTerminalContents";
 import { fileGlobSearchImpl } from "./implementations/globSearch";
+import { gotoDefinitionImpl } from "./implementations/gotoDefinition";
+import { gotoTypeDefinitionImpl } from "./implementations/gotoTypeDefinition";
 import { grepSearchImpl } from "./implementations/grepSearch";
 import { lsToolImpl } from "./implementations/lsTool";
 import { readCurrentlyOpenFileImpl } from "./implementations/readCurrentlyOpenFile";
@@ -194,6 +200,16 @@ export async function callBuiltInTool(
       return await readFileImpl(args, extras);
     case BuiltInToolNames.ReadFileRange:
       return await readFileRangeImpl(args, extras);
+    case BuiltInToolNames.GetProblems:
+      return await getProblemsImpl(args, extras);
+    case BuiltInToolNames.GotoDefinition:
+      return await gotoDefinitionImpl(args, extras);
+    case BuiltInToolNames.GotoTypeDefinition:
+      return await gotoTypeDefinitionImpl(args, extras);
+    case BuiltInToolNames.GetReferences:
+      return await getReferencesImpl(args, extras);
+    case BuiltInToolNames.GetDocumentSymbols:
+      return await getDocumentSymbolsImpl(args, extras);
     case BuiltInToolNames.CreateNewFile:
       return await createNewFileImpl(args, extras);
     case BuiltInToolNames.GrepSearch:
@@ -202,6 +218,8 @@ export async function callBuiltInTool(
       return await fileGlobSearchImpl(args, extras);
     case BuiltInToolNames.RunTerminalCommand:
       return await runTerminalCommandImpl(args, extras);
+    case BuiltInToolNames.GetTerminalContents:
+      return await getTerminalContentsImpl(args, extras);
     case BuiltInToolNames.SearchWeb:
       return await searchWebImpl(args, extras);
     case BuiltInToolNames.FetchUrlContent:
