@@ -3,6 +3,7 @@ import { streamJSON } from "@continuedev/fetch";
 import { ChatMessage, CompletionOptions, LLMOptions } from "../../index.js";
 import { serializeTool } from "../../tools/index.js";
 import { renderChatMessage } from "../../util/messageContent.js";
+import { getAIStudioContinueSession } from "../../util/aiStudioSession.js";
 import { BaseLLM } from "../index.js";
 
 type AIStudioStreamEvent = {
@@ -16,12 +17,33 @@ type AIStudioStreamEvent = {
   error?: string | { message?: string };
 };
 
+type AIStudioSupportedModelGroup = {
+  label?: string;
+  options?: Array<{
+    value?: string;
+    label?: string;
+  }>;
+};
+
+type AIStudioMetadataResponse = {
+  control_model?: {
+    supported_llms?: AIStudioSupportedModelGroup[];
+  };
+};
+
 class AIStudio extends BaseLLM {
   static providerName = "ai-studio";
   static defaultOptions: Partial<LLMOptions> = {
     apiBase: "http://127.0.0.1:9090/",
     model: "daemon-controller",
   };
+
+  get underlyingProviderName(): string {
+    const rawProvider = this.requestOptions?.extraBodyProperties?.provider;
+    return typeof rawProvider === "string" && rawProvider.trim().length > 0
+      ? rawProvider.trim().toLowerCase()
+      : this.providerName;
+  }
 
   private getEndpoint(path: string): string {
     const base = this.apiBase ?? AIStudio.defaultOptions.apiBase!;
@@ -32,6 +54,71 @@ class AIStudio extends BaseLLM {
     return this.requestOptions?.extraBodyProperties ?? {};
   }
 
+  private resolveDelegatedProvider(overrides: Record<string, any>): string | undefined {
+    const rawProvider =
+      typeof overrides.provider === "string" ? overrides.provider.trim() : "";
+    if (!rawProvider) {
+      return undefined;
+    }
+
+    return rawProvider.toLowerCase();
+  }
+
+  private getRequestedModel(options: CompletionOptions): string {
+    return typeof options.model === "string" && options.model.trim()
+      ? options.model.trim()
+      : this.model;
+  }
+
+  private getSupportedModelsEndpoint(): string {
+    return this.getEndpoint("/api/continue/metadata");
+  }
+
+  private async validateDelegatedModelAgainstCatalog(
+    delegatedProvider: string,
+    delegatedModel: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const response = await this.fetch(this.getSupportedModelsEndpoint(), {
+      method: "GET",
+      headers: this.getHeaders(),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `AI Studio metadata request failed with status ${response.status}`,
+      );
+    }
+
+    const metadata = (await response.json()) as AIStudioMetadataResponse;
+    const supportedGroups = metadata.control_model?.supported_llms;
+    if (!Array.isArray(supportedGroups)) {
+      throw new Error(
+        "AI Studio metadata does not advertise supported LLMs for Continue routing",
+      );
+    }
+
+    const requestedPair = `${delegatedProvider}:${delegatedModel}`;
+    const supportedValues = new Set(
+      supportedGroups.flatMap((group) =>
+        Array.isArray(group.options)
+          ? group.options
+              .map((option) =>
+                typeof option.value === "string" ? option.value.trim() : "",
+              )
+              .filter((value) => value.length > 0)
+          : [],
+      ),
+    );
+
+    if (!supportedValues.has(requestedPair)) {
+      throw new Error(
+        `AI Studio daemon does not advertise support for ${requestedPair}`,
+      );
+    }
+  }
+
   private getSessionID(): string {
     return this.uniqueId && this.uniqueId !== "None"
       ? this.uniqueId
@@ -39,14 +126,29 @@ class AIStudio extends BaseLLM {
   }
 
   private getHeaders(): Record<string, string> {
-    return {
+    const headers = {
       ...(this.requestOptions?.headers ?? {}),
       Accept: "application/x-ndjson",
       "Content-Type": "application/json",
-    };
+    } as Record<string, string>;
+    if (!headers.Authorization && !headers.authorization) {
+      const session = getAIStudioContinueSession();
+      if (session?.daemonAccessToken) {
+        headers.Authorization = `Bearer ${session.daemonAccessToken}`;
+      }
+    }
+    return headers;
   }
 
   private buildPrompt(messages: ChatMessage[]): string {
+    const latestUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user");
+
+    if (latestUserMessage) {
+      return renderChatMessage(latestUserMessage);
+    }
+
     if (
       messages.length === 1 &&
       messages[0].role === "user" &&
@@ -62,6 +164,9 @@ class AIStudio extends BaseLLM {
 
   private buildRequest(messages: ChatMessage[], options: CompletionOptions) {
     const overrides = this.getRequestBodyOverrides();
+    const session = getAIStudioContinueSession();
+    const delegatedProvider = this.resolveDelegatedProvider(overrides);
+    const delegatedModel = this.getRequestedModel(options);
     const workspaceRoot =
       typeof overrides.workspace_root === "string"
         ? overrides.workspace_root.trim()
@@ -84,7 +189,7 @@ class AIStudio extends BaseLLM {
     const requestBody: Record<string, any> = {
       session_id: this.getSessionID(),
       message: this.buildPrompt(messages),
-      model: options.model,
+      model: delegatedModel,
       mode:
         typeof overrides.mode === "string" && overrides.mode.trim().length > 0
           ? overrides.mode.trim()
@@ -99,14 +204,27 @@ class AIStudio extends BaseLLM {
       },
     };
 
-    if (typeof overrides.provider === "string" && overrides.provider.trim()) {
-      requestBody.provider = overrides.provider.trim();
+    if (delegatedProvider) {
+      requestBody.provider = delegatedProvider;
     }
     if (this.apiKey) {
       requestBody.api_key = this.apiKey;
     }
     if (typeof overrides.url === "string" && overrides.url.trim()) {
       requestBody.url = overrides.url.trim();
+    }
+    if (session?.hqAccessToken) {
+      requestBody.auth = {
+        access_token: session.hqAccessToken,
+        refresh_token: session.hqRefreshToken,
+      };
+    }
+    if (session?.hqBaseUrl || session?.hqUserID || session?.hqSessionID) {
+      requestBody.hq = {
+        base_url: session.hqBaseUrl,
+        user_id: session.hqUserID,
+        session_id: session.hqSessionID,
+      };
     }
     if (Array.isArray(options.tools) && options.tools.length > 0) {
       requestBody.tools = options.tools.map((tool) => serializeTool(tool));
@@ -116,6 +234,60 @@ class AIStudio extends BaseLLM {
     }
 
     return requestBody;
+  }
+
+  private async fetchChatResponse(
+    requestBody: Record<string, any>,
+    signal: AbortSignal,
+    retryAttempt = 0,
+  ): Promise<Response> {
+    if (
+      typeof requestBody.provider === "string" &&
+      typeof requestBody.model === "string"
+    ) {
+      await this.validateDelegatedModelAgainstCatalog(
+        requestBody.provider,
+        requestBody.model,
+        signal,
+      );
+    }
+
+    const endpoint = this.getEndpoint("/api/continue/chat");
+    const response = await this.fetch(endpoint, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(requestBody),
+      signal,
+    });
+
+    const authHandler = (globalThis as typeof globalThis & {
+      __continueAuthHandler?: (url: string, status: number) => Promise<boolean | void> | boolean | void;
+    }).__continueAuthHandler;
+    if (
+      retryAttempt === 0 &&
+      authHandler &&
+      [401, 403].includes(response.status)
+    ) {
+      const shouldRetry = (await authHandler(endpoint, response.status)) ?? false;
+      if (shouldRetry) {
+        return this.fetchChatResponse(requestBody, signal, retryAttempt + 1);
+      }
+    }
+
+    if (!response.ok) {
+      let message = `AI Studio request failed with status ${response.status}`;
+      try {
+        const body = await response.text();
+        if (body.trim()) {
+          message = body;
+        }
+      } catch {
+        // Ignore body parsing failure and fall back to status message.
+      }
+      throw new Error(message);
+    }
+
+    return response;
   }
 
   private buildToolCallChunk(
@@ -173,12 +345,10 @@ class AIStudio extends BaseLLM {
     signal: AbortSignal,
     options: CompletionOptions,
   ): AsyncGenerator<ChatMessage> {
-    const response = await this.fetch(this.getEndpoint("/api/continue/chat"), {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify(this.buildRequest(messages, options)),
+    const response = await this.fetchChatResponse(
+      this.buildRequest(messages, options),
       signal,
-    });
+    );
 
     let toolCallIndex = 0;
     for await (const event of streamJSON(response)) {

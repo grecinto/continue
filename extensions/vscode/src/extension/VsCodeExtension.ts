@@ -59,6 +59,7 @@ import {
   initDocumentContentCache,
 } from "../util/editLoggingUtils";
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
+import { AIStudioHQLoginDialogRequest, AIStudioHQLoginDialogResponse } from "core/util/aiStudioSession";
 
 export class VsCodeExtension {
   // Currently some of these are public so they can be used in testing (test/test-suites)
@@ -80,6 +81,40 @@ export class VsCodeExtension {
   private completionProvider: ContinueCompletionProvider;
 
   private ARBITRARY_TYPING_DELAY = 2000;
+
+  public async focusContinueView(): Promise<void> {
+    await vscode.commands.executeCommand("continue.continueGUIView.focus");
+  }
+
+  public async requestHQLogin(
+    request: AIStudioHQLoginDialogRequest,
+  ): Promise<AIStudioHQLoginDialogResponse | undefined> {
+    return this.sidebar.webviewProtocol.request("sop/requestHQLogin", request);
+  }
+
+  public async readSecret(key: string): Promise<string | undefined> {
+    const secrets = await this.ide.readSecrets([key]);
+    return secrets[key];
+  }
+
+  public async writeSecret(key: string, value: string): Promise<void> {
+    await this.ide.writeSecrets({ [key]: value });
+  }
+
+  public async deleteSecret(key: string): Promise<void> {
+    await this.ide.secretStorage.delete(key);
+  }
+
+  public async showToast(
+    type: "info" | "warning" | "error",
+    message: string,
+  ): Promise<void> {
+    await this.ide.showToast(type, message);
+  }
+
+  public async reloadContinueConfig(reason: string): Promise<void> {
+    await this.configHandler.reloadConfig(reason);
+  }
 
   /**
    * This is how you turn next edit on or off at the extension level.

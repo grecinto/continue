@@ -31,6 +31,7 @@ import { IdeInfoService } from "../../util/IdeInfoService";
 import { TTS } from "../../util/tts";
 import { getWorkspaceContinueRuleDotFiles } from "../getWorkspaceContinueRuleDotFiles";
 import { loadContinueConfigFromJson } from "../load";
+import { syncAIStudioModelsWithDaemonCatalog } from "../aiStudioCatalog";
 import { CodebaseRulesCache } from "../markdown/loadCodebaseRules";
 import { loadMarkdownRules } from "../markdown/loadMarkdownRules";
 import { migrateJsonSharedConfig } from "../migrateSharedConfig";
@@ -187,6 +188,14 @@ export default async function doLoadConfig(options: {
       }
     }
   });
+
+  const aiStudioWarnings = await syncAIStudioModelsWithDaemonCatalog(newConfig);
+  errors.push(
+    ...aiStudioWarnings.map((message) => ({
+      fatal: false,
+      message,
+    })),
+  );
 
   // Rectify model selections for each role
   newConfig = rectifySelectedModelsFromGlobalContext(newConfig, profileId);

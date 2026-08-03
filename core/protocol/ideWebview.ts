@@ -12,6 +12,10 @@ import {
   SetCodeToEditPayload,
   ShowFilePayload,
 } from "../";
+import {
+  AIStudioHQLoginDialogRequest,
+  AIStudioHQLoginDialogResponse,
+} from "../util/aiStudioSession";
 
 export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   openUrl: [string, void];
@@ -79,4 +83,5 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
   exitEditMode: [undefined, void];
   focusEdit: [undefined, void];
   addToChat: [AddToChatPayload, void];
+  "sop/requestHQLogin": [AIStudioHQLoginDialogRequest, AIStudioHQLoginDialogResponse | undefined];
 };

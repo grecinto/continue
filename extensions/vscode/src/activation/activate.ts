@@ -6,6 +6,7 @@ import { isUnsupportedPlatform } from "../util/util";
 
 import { GlobalContext } from "core/util/GlobalContext";
 import { VsCodeContinueApi } from "./api";
+import { initializeAIStudioAuth } from "../aiStudioAuth";
 import setupInlineTips from "./InlineTipManager";
 
 export async function activateExtension(context: vscode.ExtensionContext) {
@@ -32,6 +33,7 @@ export async function activateExtension(context: vscode.ExtensionContext) {
   setupInlineTips(context);
 
   const vscodeExtension = new VsCodeExtension(context);
+  await initializeAIStudioAuth(vscodeExtension);
 
   // Load Continue configuration
   if (!context.globalState.get("hasBeenInstalled")) {

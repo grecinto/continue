@@ -16,6 +16,7 @@ import { fontSize, isMetaEquivalentKeyPressed } from "../util";
 import { ROUTES } from "../util/navigation";
 import { FatalErrorIndicator } from "./config/FatalErrorNotice";
 import TextDialog from "./dialogs";
+import { AIStudioHQLoginDialog } from "./dialogs/AIStudioHQLoginDialog";
 import { useMainEditor } from "./mainInput/TipTapEditor";
 import {
   isNewUserOnboarding,
@@ -217,6 +218,7 @@ const Layout = () => {
               }}
               message={dialogMessage}
             />
+            <AIStudioHQLoginDialog />
 
             <GridDiv>
               <Outlet />

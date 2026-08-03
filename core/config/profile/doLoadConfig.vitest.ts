@@ -89,6 +89,7 @@ vi.mock("fs", async (importOriginal) => {
 });
 
 import doLoadConfig from "./doLoadConfig.js";
+import AIStudio from "../../llm/llms/AIStudio.js";
 
 const mockIde = {
   getIdeInfo: vi.fn().mockResolvedValue({
@@ -155,5 +156,99 @@ describe("doLoadConfig pre-read content bypass", () => {
 
     expect(mockLoadYaml).not.toHaveBeenCalled();
     expect(mockLoadJson).toHaveBeenCalled();
+  });
+
+  it("should expand ai-studio models from the daemon-supported catalog", async () => {
+    mockLoadJson.mockClear();
+    const aiStudioModel = new AIStudio({
+      uniqueId: "ai-studio-base",
+      title: "AI Studio",
+      model: "daemon-controller",
+      apiBase: "http://127.0.0.1:9090/",
+      requestOptions: {
+        extraBodyProperties: {},
+      },
+    });
+
+    mockLoadJson.mockResolvedValueOnce({
+      config: {
+        ...stubConfig,
+        modelsByRole: {
+          chat: [aiStudioModel],
+          edit: [],
+          apply: [],
+          summarize: [],
+          rerank: [],
+          autocomplete: [],
+          embed: [],
+          subagent: [],
+        },
+        selectedModelByRole: {
+          chat: aiStudioModel,
+          edit: null,
+          apply: null,
+          summarize: null,
+          rerank: null,
+          autocomplete: null,
+          embed: null,
+          subagent: null,
+        },
+      },
+      errors: [],
+      configLoadInterrupted: false,
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          control_model: {
+            supported_llms: [
+              {
+                label: "Shared",
+                options: [
+                  {
+                    value: "openai:gpt-5.4",
+                    label: "GPT-5.4",
+                  },
+                  {
+                    value: "anthropic:claude-sonnet-4-5",
+                    label: "Claude Sonnet 4.5",
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    ) as typeof fetch;
+
+    const packageIdentifier: PackageIdentifier = {
+      uriType: "file",
+      fileUri:
+        "vscode-remote://wsl+Ubuntu/home/user/.continue/agents/test.yaml",
+    };
+
+    const result = await doLoadConfig({
+      ide: mockIde,
+      llmLogger: mockLlmLogger,
+      profileId: "test-profile",
+      overrideConfigYamlByPath: packageIdentifier.fileUri,
+      packageIdentifier,
+    });
+
+    global.fetch = originalFetch;
+
+    expect(result.config?.modelsByRole.chat.map((model) => model.title)).toEqual([
+      "GPT-5.4",
+      "Claude Sonnet 4.5",
+    ]);
+    expect(
+      result.config?.modelsByRole.chat.map((model) => model.underlyingProviderName),
+    ).toEqual(["openai", "anthropic"]);
+    expect(result.config?.selectedModelByRole.chat?.title).toBe("GPT-5.4");
   });
 });
