@@ -5,6 +5,7 @@ import OllamaLogo from "../../svg/OllamaLogo";
 interface OnboardingCardTabsProps {
   activeTab: OnboardingModes;
   onTabClick: (tabName: OnboardingModes) => void;
+  hideApiKeyTab?: boolean;
 }
 
 const renderTabButton = (
@@ -52,8 +53,11 @@ const renderTabButton = (
 export function OnboardingCardTabs({
   activeTab,
   onTabClick,
+  hideApiKeyTab = false,
 }: OnboardingCardTabsProps) {
-  const tabs = [OnboardingModes.API_KEY, OnboardingModes.LOCAL];
+  const tabs = hideApiKeyTab
+    ? [OnboardingModes.LOCAL]
+    : [OnboardingModes.API_KEY, OnboardingModes.LOCAL];
   return (
     <div>
       <div className="hidden sm:block">

@@ -17,6 +17,8 @@ type AIStudioSupportedModelGroup = {
 type AIStudioMetadataResponse = {
   control_model?: {
     supported_llms?: AIStudioSupportedModelGroup[];
+    llm_pool_populated?: boolean;
+    hide_editor_pool_inputs_when_populated?: boolean;
   };
 };
 
@@ -24,6 +26,12 @@ type SupportedDelegatedModel = {
   provider: string;
   model: string;
   label: string;
+};
+
+type AIStudioCatalogMetadata = {
+  delegatedModels: SupportedDelegatedModel[];
+  llmPoolPopulated: boolean;
+  hideEditorPoolInputsWhenPopulated: boolean;
 };
 
 const MODEL_ROLES: ModelRole[] = [
@@ -72,7 +80,7 @@ function getMetadataHeaders(model: ILLM): Record<string, string> {
 
 async function fetchSupportedDelegatedModels(
   model: ILLM,
-): Promise<SupportedDelegatedModel[]> {
+): Promise<AIStudioCatalogMetadata> {
   const response = await fetch(getMetadataEndpoint(model), {
     method: "GET",
     headers: getMetadataHeaders(model),
@@ -90,7 +98,11 @@ async function fetchSupportedDelegatedModels(
     throw new Error("metadata response did not include supported_llms");
   }
 
-  return groups.flatMap((group) => {
+  const llmPoolPopulated = payload.control_model?.llm_pool_populated === true;
+  const hideEditorPoolInputsWhenPopulated =
+    payload.control_model?.hide_editor_pool_inputs_when_populated === true;
+
+  const delegatedModels = groups.flatMap((group) => {
     if (!Array.isArray(group.options)) {
       return [];
     }
@@ -118,6 +130,12 @@ async function fetchSupportedDelegatedModels(
       ];
     });
   });
+
+  return {
+    delegatedModels,
+    llmPoolPopulated,
+    hideEditorPoolInputsWhenPopulated,
+  };
 }
 
 function getRequestedDelegatedPair(model: ILLM): string | undefined {
@@ -157,12 +175,19 @@ function cloneAIStudioModel(
   baseModel: ILLM,
   delegated: SupportedDelegatedModel,
   title: string,
+  metadata: Pick<
+    AIStudioCatalogMetadata,
+    "llmPoolPopulated" | "hideEditorPoolInputsWhenPopulated"
+  >,
 ): ILLM {
   const requestOptions = {
     ...(baseModel.requestOptions ?? {}),
     extraBodyProperties: {
       ...(baseModel.requestOptions?.extraBodyProperties ?? {}),
       provider: delegated.provider,
+      ai_studio_llm_pool_populated: metadata.llmPoolPopulated,
+      ai_studio_hide_pool_key_inputs:
+        metadata.llmPoolPopulated && metadata.hideEditorPoolInputsWhenPopulated,
     },
   };
 
@@ -225,20 +250,20 @@ export async function syncAIStudioModelsWithDaemonCatalog(
     return [];
   }
 
-  const delegatedModelsByKey = new Map<string, SupportedDelegatedModel[]>();
+  const delegatedModelsByKey = new Map<string, AIStudioCatalogMetadata>();
   const warnings: string[] = [];
 
   await Promise.all(
     Array.from(baseModels.entries()).map(async ([key, model]) => {
       try {
-        const delegatedModels = await fetchSupportedDelegatedModels(model);
-        if (delegatedModels.length === 0) {
+        const metadata = await fetchSupportedDelegatedModels(model);
+        if (metadata.delegatedModels.length === 0) {
           warnings.push(
             "AI Studio metadata returned no supported_llms entries; using configured AI Studio models as-is.",
           );
           return;
         }
-        delegatedModelsByKey.set(key, delegatedModels);
+        delegatedModelsByKey.set(key, metadata);
       } catch (error) {
         warnings.push(
           `AI Studio model catalog unavailable (${error instanceof Error ? error.message : "unknown error"}); using configured AI Studio models as-is.`,
@@ -263,18 +288,19 @@ export async function syncAIStudioModelsWithDaemonCatalog(
         continue;
       }
 
-      const delegatedModels = delegatedModelsByKey.get(getAIStudioKey(model));
-      if (!delegatedModels?.length) {
+      const delegatedMetadata = delegatedModelsByKey.get(getAIStudioKey(model));
+      if (!delegatedMetadata?.delegatedModels?.length) {
         usedTitles.add(model.title ?? model.model);
         nextModels.push(model);
         continue;
       }
 
-      const replacements = delegatedModels.map((delegated) =>
+      const replacements = delegatedMetadata.delegatedModels.map((delegated) =>
         cloneAIStudioModel(
           model,
           delegated,
           resolveUniqueTitle(delegated.label, usedTitles),
+          delegatedMetadata,
         ),
       );
 
