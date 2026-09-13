@@ -33,6 +33,7 @@ import {
 } from "./util/processTerminalStates";
 import { getSymbolsForManyFiles } from "./util/treeSitter";
 import { TTS } from "./util/tts";
+import { getAIStudioContinueSession } from "./util/aiStudioSession";
 
 import {
   CompleteOnboardingPayload,
@@ -85,6 +86,50 @@ import type { IMessenger, Message } from "./protocol/messenger";
 import { ContinueError, ContinueErrorReason } from "./util/errors";
 import { shareSession } from "./util/historyUtils";
 import { Logger } from "./util/Logger.js";
+
+function getDaemonApiBase(): string {
+  const session = getAIStudioContinueSession();
+  const baseUrl = session?.daemonBaseUrl?.trim();
+  if (!baseUrl) {
+    throw new Error("AI Studio daemon session is unavailable");
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
+async function fetchDaemonWorkflowUndo<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const session = getAIStudioContinueSession();
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+  headers.set("Content-Type", "application/json");
+  if (session?.daemonAccessToken) {
+    headers.set("Authorization", `Bearer ${session.daemonAccessToken}`);
+  }
+
+  const response = await fetch(`${getDaemonApiBase()}${path}`, {
+    ...init,
+    headers,
+  });
+
+  const text = await response.text();
+  let payload: any = undefined;
+  if (text.trim()) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { message: text };
+    }
+  }
+
+  if (!response.ok) {
+    const message = payload?.message || payload?.error || `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload as T;
+}
 
 export class Core {
   configHandler: ConfigHandler;
@@ -329,6 +374,29 @@ export class Core {
 
     on("history/clear", (msg) => {
       historyManager.clearAll();
+    });
+
+    on("workflowUndo/recent", async (msg) => {
+      const limit = msg.data?.limit ?? 20;
+      return await fetchDaemonWorkflowUndo<ToCoreProtocol["workflowUndo/recent"][1]>(
+        `/api/workflow/undo/recent?limit=${encodeURIComponent(String(limit))}`,
+      );
+    });
+
+    on("workflowUndo/restore", async (msg) => {
+      const body = JSON.stringify({
+        transaction_id: msg.data.transactionId,
+        create_backup: msg.data.createBackup ?? false,
+        dry_run: msg.data.dryRun ?? false,
+        verify_hashes: msg.data.verifyHashes ?? false,
+      });
+      return await fetchDaemonWorkflowUndo<ToCoreProtocol["workflowUndo/restore"][1]>(
+        `/api/workflow/undo/restore/${encodeURIComponent(msg.data.transactionId)}`,
+        {
+          method: "POST",
+          body,
+        },
+      );
     });
 
     on("devdata/log", async (msg) => {

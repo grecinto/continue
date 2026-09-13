@@ -5,7 +5,7 @@ import { MutableRefObject } from "react";
 import { useWebviewListener } from "../../../hooks/useWebviewListener";
 import { useAppSelector } from "../../../redux/hooks";
 import { clearCodeToEdit } from "../../../redux/slices/editState";
-import { setNewestToolbarPreviewForInput } from "../../../redux/slices/sessionSlice";
+import { setNewestToolbarPreviewForInput, setMode } from "../../../redux/slices/sessionSlice";
 import { AppDispatch } from "../../../redux/store";
 import { loadSession, saveCurrentSession } from "../../../redux/thunks/session";
 import { CodeBlock, PromptBlock } from "./extensions";
@@ -53,6 +53,14 @@ export function useMainEditorWebviewListeners({
       onEnterRef.current({ useCodebase: false, noContext: true });
     },
     [editor, onEnterRef.current],
+  );
+
+  useWebviewListener(
+    "aiStudio/forceMode",
+    async (data) => {
+      dispatch(setMode(data.mode));
+    },
+    [dispatch],
   );
 
   useWebviewListener("jetbrains/editorInsetRefresh", async () => {

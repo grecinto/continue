@@ -60,6 +60,69 @@ export interface ListHistoryOptions {
   workspaceDirectory?: string;
 }
 
+export interface WorkflowUndoRecentOptions {
+  limit?: number;
+}
+
+export interface WorkflowUndoRecentResponse {
+  success: boolean;
+  message?: string;
+  total?: number;
+  transactions?: Array<{
+    id: string;
+    timestamp?: string;
+    description?: string;
+    status?: string;
+    workflow_type?: string;
+    session_id?: string;
+    workstream_id?: string;
+    modified_files?: Array<{
+      file_path?: string;
+      change_type?: string;
+      diff_summary?: string;
+      diff_stats?: string;
+      delta_format?: string;
+      preview?: string;
+      diff_preview?: string;
+      metadata?: Record<string, string>;
+    }>;
+  }>;
+  summary?: Array<{
+    transaction_id: string;
+    timestamp: string;
+    description: string;
+    workflow_type: string;
+    status: string;
+    summary: string;
+    files?: Array<{
+      file_path: string;
+      change_type: string;
+      diff_summary?: string;
+      diff_stats?: string;
+      delta_format?: string;
+      preview?: string;
+      diff_preview?: string;
+      metadata?: Record<string, string>;
+    }>;
+    metadata?: Record<string, string | number | boolean | null>;
+  }>;
+}
+
+export interface WorkflowUndoRestoreOptions {
+  transactionId: string;
+  createBackup?: boolean;
+  dryRun?: boolean;
+  verifyHashes?: boolean;
+}
+
+export interface WorkflowUndoRestoreResponse {
+  success: boolean;
+  message?: string;
+  transaction_id?: string;
+  files_restored?: number;
+  restored_files?: string[];
+}
+
 export type ToCoreFromIdeOrWebviewProtocol = {
   // Special
   ping: [string, string];
@@ -73,6 +136,8 @@ export type ToCoreFromIdeOrWebviewProtocol = {
   "history/save": [Session, void];
   "history/share": [{ id: string; outputDir?: string }, void];
   "history/clear": [undefined, void];
+  "workflowUndo/recent": [WorkflowUndoRecentOptions, WorkflowUndoRecentResponse];
+  "workflowUndo/restore": [WorkflowUndoRestoreOptions, WorkflowUndoRestoreResponse];
   "devdata/log": [DevDataLogEvent, void];
   "config/addOpenAiKey": [string, void];
   "config/addModel": [

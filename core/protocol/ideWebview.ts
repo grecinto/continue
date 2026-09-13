@@ -8,6 +8,7 @@ import {
   ApplyToFilePayload,
   HighlightedCodePayload,
   MessageContent,
+  MessageModes,
   RangeInFileWithContents,
   SetCodeToEditPayload,
   ShowFilePayload,
@@ -84,4 +85,7 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
   focusEdit: [undefined, void];
   addToChat: [AddToChatPayload, void];
   "sop/requestHQLogin": [AIStudioHQLoginDialogRequest, AIStudioHQLoginDialogResponse | undefined];
+  // setMode is otherwise only ever dispatched from the user-driven ModeSelect UI;
+  // this lets the IDE force Agent mode before injecting a delegated AI Studio task.
+  "aiStudio/forceMode": [{ mode: MessageModes }, void];
 };

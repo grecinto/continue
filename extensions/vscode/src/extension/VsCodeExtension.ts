@@ -92,6 +92,32 @@ export class VsCodeExtension {
     return this.sidebar.webviewProtocol.request("sop/requestHQLogin", request);
   }
 
+  /**
+   * Injects a delegated AI Studio task as a submitted chat message in Agent mode.
+   *
+   * `newSessionWithPrompt` is declared in the protocol but has no GUI-side listener
+   * today, so it is not used here. This instead composes three protocol messages
+   * that do have real listeners: start a fresh session (a no-op when there is no
+   * existing chat history), force Agent mode, then submit the prompt exactly like
+   * a user typing into the chat box (see "userInput" in
+   * gui/src/components/mainInput/TipTapEditor/useMainEditorWebviewListeners.ts).
+   */
+  public async runDelegatedPrompt(prompt: string): Promise<void> {
+    await this.focusContinueView();
+    await this.sidebar.webviewProtocol.request(
+      "focusContinueInputWithNewSession",
+      undefined,
+    );
+    await this.sidebar.webviewProtocol.request("aiStudio/forceMode", {
+      mode: "agent",
+    });
+    await this.sidebar.webviewProtocol.request("userInput", { input: prompt });
+  }
+
+  public async getWorkspaceDiff(includeUnstaged = true): Promise<string[]> {
+    return await this.ide.getDiff(includeUnstaged);
+  }
+
   public async readSecret(key: string): Promise<string | undefined> {
     const secrets = await this.ide.readSecrets([key]);
     return secrets[key];

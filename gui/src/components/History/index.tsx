@@ -10,7 +10,7 @@ import React, {
 } from "react";
 import Shortcut from "../gui/Shortcut";
 
-import { XMarkIcon } from "@heroicons/react/24/solid";
+import { ArrowUturnLeftIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { useNavigate } from "react-router-dom";
 import { IdeMessengerContext } from "../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
@@ -143,6 +143,57 @@ export function History() {
     dispatch(setShowDialog(true));
   };
 
+  const undoLastWorkflowChange = async () => {
+    try {
+      const recentResponse = await ideMessenger.request("workflowUndo/recent", {
+        limit: 20,
+      });
+      if (recentResponse.status === "error") {
+        throw new Error(recentResponse.error);
+      }
+
+      const recent = recentResponse.content;
+      const latest = recent.transactions?.find(
+        (txn: { status?: string }) => txn.status !== "undone",
+      );
+
+      if (!latest) {
+        dispatch(
+          setDialogMessage(
+            <ConfirmationDialog
+              title="Undo workflow change"
+              text="No workflow changes are available to undo."
+              onConfirm={async () => {
+                dispatch(setShowDialog(false));
+              }}
+            />,
+          ),
+        );
+        dispatch(setShowDialog(true));
+        return;
+      }
+
+      dispatch(
+        setDialogMessage(
+          <ConfirmationDialog
+            title="Undo workflow change"
+            text={`Restore files from workflow change: ${latest.description || latest.id}?`}
+            onConfirm={async () => {
+              await ideMessenger.request("workflowUndo/restore", {
+                transactionId: latest.id,
+                createBackup: false,
+              });
+              dispatch(setShowDialog(false));
+            }}
+          />,
+        ),
+      );
+      dispatch(setShowDialog(true));
+    } catch (error) {
+      console.error("Failed to undo workflow change", error);
+    }
+  };
+
   return (
     <div
       style={{ fontSize: getFontSize() }}
@@ -210,6 +261,15 @@ export function History() {
       </div>
 
       <div className="border-border flex flex-col items-end justify-center border-0 border-t border-solid px-2 py-3 text-xs">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={undoLastWorkflowChange}
+          className="mb-2 inline-flex items-center gap-1"
+        >
+          <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
+          Undo workflow change
+        </Button>
         <Button variant="secondary" size="sm" onClick={showClearSessionsDialog}>
           Clear chats
         </Button>

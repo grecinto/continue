@@ -185,11 +185,6 @@ describe("AIStudio", () => {
     const mockFetch = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(createMetadataBody(["openai:gpt-5.4"]), {
-          headers: { "Content-Type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
         new Response(createMockNdjsonBody([{ type: "done" }]), {
           headers: { "Content-Type": "application/x-ndjson" },
         }),
@@ -209,7 +204,7 @@ describe("AIStudio", () => {
       // no-op
     }
 
-    const [, init] = mockFetch.mock.calls[1];
+    const [, init] = mockFetch.mock.calls[0];
     const body = JSON.parse(init.body as string);
     expect(body.message).toBe("Current IDE coding subtask");
     expect(body.message).not.toContain("Earlier request");
@@ -435,6 +430,173 @@ describe("AIStudio", () => {
       },
     });
     setAIStudioContinueSession(undefined);
+  });
+
+  test("streamChat should forward delegated execution metadata when present", async () => {
+    const llm = new AIStudio({
+      uniqueId: "ai-studio-session-execution",
+      model: "gpt-5.4",
+      apiBase: "http://127.0.0.1:9090/",
+      requestOptions: {
+        headers: {
+          Authorization: "Bearer daemon-jwt",
+        },
+        extraBodyProperties: {
+          provider: "openai",
+          request_id: "request-123",
+          root_request_id: "root-456",
+          requested_phase: "execution",
+          workflow_profile: "implementation",
+          task_type: "feature",
+          allowed_tools: ["read_file", "apply_patch"],
+          guidance: {
+            team_practices: ["Preserve public interfaces"],
+          },
+          result_contract: {
+            stream_progress: true,
+            include_modified_files: true,
+          },
+        },
+      },
+    });
+
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(createMetadataBody(["openai:gpt-5.4"]), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(createMockNdjsonBody([{ type: "done" }]), {
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      );
+
+    setupReadableStreamPolyfill();
+    (llm as any).fetch = mockFetch;
+
+    for await (const _chunk of llm.streamChat(
+      [{ role: "user", content: "delegate the current coding task" }],
+      new AbortController().signal,
+    )) {
+      // no-op
+    }
+
+    const [, init] = mockFetch.mock.calls[1];
+    expect(JSON.parse(init.body as string)).toEqual(
+      expect.objectContaining({
+        request_id: "request-123",
+        root_request_id: "root-456",
+        requested_phase: "execution",
+        workflow_profile: "implementation",
+        task_type: "feature",
+        allowed_tools: ["read_file", "apply_patch"],
+        guidance: {
+          team_practices: ["Preserve public interfaces"],
+        },
+        result_contract: {
+          stream_progress: true,
+          include_modified_files: true,
+        },
+      }),
+    );
+  });
+
+  test("streamChat should surface Continue progress events as assistant content", async () => {
+    const llm = new AIStudio({
+      uniqueId: "ai-studio-session-progress",
+      model: "gpt-5.4",
+      apiBase: "http://127.0.0.1:9090/",
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(
+        createMockNdjsonBody([
+          { type: "continue_progress", message: "Continue is applying the change" },
+          { type: "done" },
+        ]),
+        {
+          headers: {
+            "Content-Type": "application/x-ndjson",
+          },
+        },
+      ),
+    );
+
+    setupReadableStreamPolyfill();
+    (llm as any).fetch = mockFetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of llm.streamChat(
+      [{ role: "user", content: "finish the delegated work" }],
+      new AbortController().signal,
+    )) {
+      chunks.push(String(chunk.content));
+    }
+
+    expect(chunks).toEqual(["Continue is applying the change"]);
+  });
+
+  test("streamChat should surface the final structured execution result with undo metadata", async () => {
+    const llm = new AIStudio({
+      uniqueId: "ai-studio-session-done-result",
+      model: "gpt-5.4",
+      apiBase: "http://127.0.0.1:9090/",
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(
+        createMockNdjsonBody([
+          {
+            type: "done",
+            payload: {
+              result: {
+                summary: "Continue completed delegated execution work for parser.ts",
+                modified_files: [
+                  {
+                    file_path: "src/parser.ts",
+                    diff_summary: "Applied parser fix",
+                    change_id: "change::parser.ts::1",
+                    undo_ref: "undo::txn-123",
+                  },
+                ],
+                artifacts: [
+                  {
+                    kind: "diff",
+                    path: "artifacts/diffs/parser.ts.patch",
+                  },
+                ],
+              },
+            },
+          },
+        ]),
+        {
+          headers: {
+            "Content-Type": "application/x-ndjson",
+          },
+        },
+      ),
+    );
+
+    setupReadableStreamPolyfill();
+    (llm as any).fetch = mockFetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of llm.streamChat(
+      [{ role: "user", content: "finish the coding task" }],
+      new AbortController().signal,
+    )) {
+      chunks.push(String(chunk.content));
+    }
+
+    expect(chunks.join("\n")).toContain(
+      "Continue completed delegated execution work for parser.ts",
+    );
+    expect(chunks.join("\n")).toContain("src/parser.ts");
+    expect(chunks.join("\n")).toContain("change::parser.ts::1");
+    expect(chunks.join("\n")).toContain("undo::txn-123");
+    expect(chunks.join("\n")).toContain("artifacts/diffs/parser.ts.patch");
   });
 
   test("streamChat should forward Continue tools and emit native tool calls from AI Studio events", async () => {

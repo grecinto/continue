@@ -419,6 +419,40 @@ const getCommandsMap: (
     "continue.viewHistory": () => {
       vscode.commands.executeCommand("continue.navigateTo", "/history", true);
     },
+    "continue.undoLastWorkflowChange": async () => {
+      try {
+        const recent = await core.invoke("workflowUndo/recent", { limit: 20 });
+        const transactions = recent.transactions ?? [];
+        const latest = transactions.find((txn) => txn.status !== "undone");
+
+        if (!latest) {
+          void vscode.window.showInformationMessage(
+            "No workflow changes are available to undo.",
+          );
+          return;
+        }
+
+        const confirmation = await vscode.window.showWarningMessage(
+          `Restore files from workflow change: ${latest.description || latest.id}?`,
+          { modal: true },
+          "Restore",
+        );
+        if (confirmation !== "Restore") {
+          return;
+        }
+
+        const result = await core.invoke("workflowUndo/restore", {
+          transactionId: latest.id,
+          createBackup: false,
+        });
+        void vscode.window.showInformationMessage(
+          `Restored ${result.files_restored ?? 0} file(s) from workflow history.`,
+        );
+      } catch (error) {
+        const errorMessage = `Failed to restore workflow changes: ${error instanceof Error ? error.message : String(error)}`;
+        void vscode.window.showErrorMessage(errorMessage);
+      }
+    },
     "continue.focusContinueSessionId": async (
       sessionId: string | undefined,
     ) => {

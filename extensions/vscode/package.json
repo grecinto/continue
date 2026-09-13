@@ -257,6 +257,13 @@
         "group": "Continue"
       },
       {
+        "command": "continue.undoLastWorkflowChange",
+        "category": "Continue",
+        "title": "Undo Last Workflow Change",
+        "icon": "$(undo)",
+        "group": "Continue"
+      },
+      {
         "command": "continue.viewLogs",
         "category": "Continue",
         "title": "View Logs",
@@ -467,6 +474,11 @@
         "command": "continue.applyCodeFromChat",
         "mac": "alt+a",
         "key": "alt+a"
+      },
+      {
+        "command": "continue.undoLastWorkflowChange",
+        "mac": "alt+cmd+u",
+        "key": "alt+ctrl+u"
       },
       {
         "command": "continue.toggleNextEditEnabled",

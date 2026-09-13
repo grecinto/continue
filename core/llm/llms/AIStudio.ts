@@ -70,6 +70,29 @@ class AIStudio extends BaseLLM {
       : this.model;
   }
 
+  private getStringOverride(overrides: Record<string, any>, key: string): string | undefined {
+    const value = overrides[key];
+    if (typeof value !== "string") {
+      return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
+  private getStringArrayOverride(overrides: Record<string, any>, key: string): string[] | undefined {
+    const value = overrides[key];
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+
+    const entries = value
+      .filter((item: unknown): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return entries.length > 0 ? entries : undefined;
+  }
+
   private getSupportedModelsEndpoint(): string {
     return this.getEndpoint("/api/continue/metadata");
   }
@@ -207,6 +230,36 @@ class AIStudio extends BaseLLM {
     if (delegatedProvider) {
       requestBody.provider = delegatedProvider;
     }
+    const requestID = this.getStringOverride(overrides, "request_id");
+    if (requestID) {
+      requestBody.request_id = requestID;
+    }
+    const rootRequestID = this.getStringOverride(overrides, "root_request_id");
+    if (rootRequestID) {
+      requestBody.root_request_id = rootRequestID;
+    }
+    const requestedPhase = this.getStringOverride(overrides, "requested_phase");
+    if (requestedPhase) {
+      requestBody.requested_phase = requestedPhase;
+    }
+    const workflowProfile = this.getStringOverride(overrides, "workflow_profile");
+    if (workflowProfile) {
+      requestBody.workflow_profile = workflowProfile;
+    }
+    const taskType = this.getStringOverride(overrides, "task_type");
+    if (taskType) {
+      requestBody.task_type = taskType;
+    }
+    const allowedTools = this.getStringArrayOverride(overrides, "allowed_tools");
+    if (allowedTools) {
+      requestBody.allowed_tools = allowedTools;
+    }
+    if (overrides.result_contract && typeof overrides.result_contract === "object") {
+      requestBody.result_contract = overrides.result_contract;
+    }
+    if (overrides.guidance && typeof overrides.guidance === "object") {
+      requestBody.guidance = overrides.guidance;
+    }
     if (this.apiKey) {
       requestBody.api_key = this.apiKey;
     }
@@ -340,6 +393,73 @@ class AIStudio extends BaseLLM {
     };
   }
 
+  private buildExecutionResultChunk(event: AIStudioStreamEvent): ChatMessage | null {
+    const payload = event.payload ?? {};
+    const result = payload.result as Record<string, unknown> | undefined;
+    if (!result) {
+      return null;
+    }
+
+    const summary =
+      (typeof result.summary === "string" && result.summary.trim()) ||
+      (typeof event.message === "string" && event.message.trim()) ||
+      "";
+
+    const modifiedFiles = Array.isArray(result.modified_files)
+      ? result.modified_files.filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
+      : [];
+    const fileLines = modifiedFiles.map((file) => {
+      const filePath = typeof file.file_path === "string" ? file.file_path.trim() : "";
+      const diffSummary = typeof file.diff_summary === "string" ? file.diff_summary.trim() : "";
+      const changeId = typeof file.change_id === "string" ? file.change_id.trim() : "";
+      const undoRef = typeof file.undo_ref === "string" ? file.undo_ref.trim() : "";
+      const parts = [filePath || "modified file"];
+      if (diffSummary) {
+        parts.push(diffSummary);
+      }
+      if (changeId) {
+        parts.push(`change=${changeId}`);
+      }
+      if (undoRef) {
+        parts.push(`undo=${undoRef}`);
+      }
+      return parts.join(" • ");
+    });
+
+    const artifactLines = Array.isArray(result.artifacts)
+      ? result.artifacts
+          .map((artifact) => {
+            if (!artifact || typeof artifact !== "object") {
+              return "";
+            }
+            const entry = artifact as Record<string, unknown>;
+            const kind = typeof entry.kind === "string" ? entry.kind.trim() : "";
+            const path = typeof entry.path === "string" ? entry.path.trim() : "";
+            return kind || path ? `${kind || "artifact"}${path ? `: ${path}` : ""}` : "";
+          })
+          .filter((line) => line.length > 0)
+      : [];
+
+    const sections: string[] = [];
+    if (summary) {
+      sections.push(summary);
+    }
+    if (fileLines.length > 0) {
+      sections.push(`Modified files:\n${fileLines.map((line) => `- ${line}`).join("\n")}`);
+    }
+    if (artifactLines.length > 0) {
+      sections.push(`Artifacts:\n${artifactLines.map((line) => `- ${line}`).join("\n")}`);
+    }
+    if (sections.length === 0) {
+      return null;
+    }
+
+    return {
+      role: "assistant",
+      content: sections.join("\n\n"),
+    };
+  }
+
   protected async *_streamChat(
     messages: ChatMessage[],
     signal: AbortSignal,
@@ -365,6 +485,45 @@ class AIStudio extends BaseLLM {
         const toolCallChunk = this.buildToolCallChunk(typedEvent, toolCallIndex);
         if (toolCallChunk) {
           yield toolCallChunk;
+        }
+        continue;
+      }
+      if (typedEvent.type === "continue_progress" && typeof typedEvent.message === "string") {
+        const message = typedEvent.message.trim();
+        if (message) {
+          yield { role: "assistant", content: message };
+        }
+        continue;
+      }
+      if (typedEvent.type === "continue_modified_file") {
+        const payload = typedEvent.payload ?? {};
+        const file = payload.file as Record<string, unknown> | undefined;
+        const summary =
+          (file && typeof file.diff_summary === "string" && file.diff_summary.trim()) ||
+          (typeof typedEvent.message === "string" && typedEvent.message.trim()) ||
+          "";
+        if (summary) {
+          const filePath = file && typeof file.file_path === "string" ? file.file_path.trim() : "";
+          const changeId = file && typeof file.change_id === "string" ? file.change_id.trim() : "";
+          const undoRef = file && typeof file.undo_ref === "string" ? file.undo_ref.trim() : "";
+          const parts = [summary];
+          if (filePath) {
+            parts.unshift(filePath);
+          }
+          if (changeId) {
+            parts.push(`change=${changeId}`);
+          }
+          if (undoRef) {
+            parts.push(`undo=${undoRef}`);
+          }
+          yield { role: "assistant", content: parts.join(" • ") };
+        }
+        continue;
+      }
+      if (typedEvent.type === "done") {
+        const executionResultChunk = this.buildExecutionResultChunk(typedEvent);
+        if (executionResultChunk) {
+          yield executionResultChunk;
         }
         continue;
       }

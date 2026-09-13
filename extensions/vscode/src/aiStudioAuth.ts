@@ -8,6 +8,8 @@ import {
 import * as vscode from "vscode";
 
 import { VsCodeExtension } from "./extension/VsCodeExtension";
+import { AI_STUDIO_DEFAULT_SESSION_ID, registerContinueWorker } from "./aiStudioWorker";
+import { startAIStudioWorkerServer } from "./aiStudioWorkerServer";
 
 const AI_STUDIO_SESSION_SECRET_KEY = "ai-studio.continue.session";
 
@@ -101,9 +103,29 @@ async function persistSession(
       AI_STUDIO_SESSION_SECRET_KEY,
       JSON.stringify(session),
     );
+    // Best-effort, non-blocking: re-registering on every persisted session covers
+    // initial sign-in, token refresh, and HQ handoff without extra call sites.
+    // Failures are swallowed since worker delegation is optional/advisory today.
+    void ensureContinueWorkerRegistered(extension, session);
     return;
   }
   await extension.deleteSecret(AI_STUDIO_SESSION_SECRET_KEY);
+}
+
+async function ensureContinueWorkerRegistered(
+  extension: VsCodeExtension,
+  session: AIStudioContinueSession,
+): Promise<void> {
+  if (!session.daemonBaseUrl || !session.daemonAccessToken) {
+    return;
+  }
+  try {
+    const callbackUrl = await startAIStudioWorkerServer(extension);
+    await registerContinueWorker(AI_STUDIO_DEFAULT_SESSION_ID, callbackUrl, session);
+  } catch {
+    // Non-fatal: chat/delegation via /api/continue/chat still works without a
+    // registered worker; the daemon simply falls back to its own coding tools.
+  }
 }
 
 async function tryRefreshDaemonSession(
